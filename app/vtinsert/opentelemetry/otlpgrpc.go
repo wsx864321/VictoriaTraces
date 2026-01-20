@@ -90,9 +90,9 @@ func otlpExportTracesHandler(r *http.Request, w http.ResponseWriter) {
 		var (
 			callbackErr error
 		)
-		lmp := cp.NewLogMessageProcessor("opentelemetry_traces_otlpgrpc", false)
-		callbackErr = pushGRPCProtobufRequest(data, lmp)
-		lmp.MustClose()
+		tsp := cp.NewTraceProcessor("opentelemetry_traces_otlpgrpc", false)
+		callbackErr = pushGRPCProtobufRequest(data, tsp)
+		tsp.MustClose()
 		return callbackErr
 	})
 	if err != nil {
