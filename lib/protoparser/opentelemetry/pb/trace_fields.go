@@ -66,3 +66,10 @@ const (
 	StatusMessageField = "status_message"
 	StatusCodeField    = "status_code"
 )
+
+// OpenTelemetry semantic convention attribute keys for middleware/external dependency detection.
+// Stored with SpanAttrPrefixField prefix, e.g. span_attr:db.system.
+const (
+	SpanAttrKeyDbSystem = "db.system"
+	SpanAttrKeyDbName   = "db.namespace"
+)

@@ -20,4 +20,5 @@ const (
 	ServiceGraphParentFieldName    = "parent"
 	ServiceGraphChildFieldName     = "child"
 	ServiceGraphCallCountFieldName = "callCount"
+	ServiceGraphNamespaceFieldName = "namespace"
 )
