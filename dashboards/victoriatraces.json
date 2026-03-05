@@ -1582,7 +1582,7 @@
               },
               "editorMode": "code",
               "expr": "sum(rate(vm_log_messages_total{job=~\"$job\", instance=~\"$instance\", level!=\"info\"}[$__rate_interval])) by (instance, level, app_version, location)",
-              "interval": "5m",
+              "interval": "",
               "legendFormat": "{{instance}} - {{level}}: {{location}}",
               "range": true,
               "refId": "A"
