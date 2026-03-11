@@ -12,6 +12,8 @@ The following `tip` changes can be tested by building VictoriaTraces components 
 
 ## tip
 
+* FEATURE: [Single-node VictoriaTraces](https://docs.victoriametrics.com/victoriatraces/) and vtstorage in [VictoriaTraces cluster](https://docs.victoriametrics.com/victoriatraces/cluster/): allow generating service graph relation by database client span. The client span contains `db.system.name` attribute will generate a `service.name:db.system.name` (example: `account_service:mysql`) relation. It can be disabled by setting `-servicegraph.databaseTaskLimit=0`. Thank @wsx864321 for [the pull request #117](https://github.com/VictoriaMetrics/VictoriaTraces/pull/117).
+
 ## [v0.8.0](https://github.com/VictoriaMetrics/VictoriaTraces/releases/tag/v0.8.0)
 
 Released at 2026-03-02
