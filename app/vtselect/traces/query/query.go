@@ -774,5 +774,25 @@ func GetServiceDBGraphTimeRange(ctx context.Context, tenantID logstorage.TenantI
 	if err = vtstorage.RunQuery(qctx, writeBlock); err != nil {
 		return nil, fmt.Errorf("cannot execute middleware query [%s]: %w", qStr, err)
 	}
+
+	// rename `child` node's name (e.g. `redis`) to service.name + child name (e.g. `serviceA:redis`)
+	for i := range rows {
+		parentName := ""
+		for j := range rows[i] {
+			if rows[i][j].Name == otelpb.ServiceGraphParentFieldName {
+				parentName = rows[i][j].Value
+				break
+			}
+		}
+		if parentName == "" {
+			continue
+		}
+		for j := range rows[i] {
+			if rows[i][j].Name == otelpb.ServiceGraphChildFieldName {
+				rows[i][j].Value = parentName + ":" + rows[i][j].Value
+				break
+			}
+		}
+	}
 	return rows, nil
 }
