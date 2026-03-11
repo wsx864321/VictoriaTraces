@@ -33,7 +33,7 @@ services:
   #  VictoriaTraces instance, a single process responsible for
   #  storing trace span and serving read queries.
   victoriatraces:
-    image: 'victoriametrics/victoria-traces:heads-fork-wsx864321-feature-middleware_graph_0305-0-g368507f23-dirty-5edbcf71'
+    image: 'docker.io/victoriametrics/victoria-traces:latest'
     ports:
       - "10428:10428"
     command:
