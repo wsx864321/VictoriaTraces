@@ -701,38 +701,31 @@ func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID,
 	return rows, nil
 }
 
-// spanAttr returns the full field name for a span attribute (e.g. span_attr:db.system).
-func spanAttr(key string) string {
-	return otelpb.SpanAttrPrefixField + key
-}
-
-// GetMiddlewareGraphTimeRange returns service-to-middleware relations (parent, child, namespace, callCount) for the given tenant and time range.
-// Query: Client spans (kind:3) with db.system/db.namespace and resource_attr:service.name, then stats by (parent, child, namespace).
-// LogSQL: (NOT "span_attr:db.system": "") AND (kind:3) | fields ... | rename ... | stats by (parent, child, namespace) count() callCount.
-func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID, startTime, endTime time.Time, limit uint64) ([][]logstorage.Field, error) {
+// GetServiceDBGraphTimeRange returns service-to-db relations (parent, child, callCount) for the given tenant and time range.
+func GetServiceDBGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID, startTime, endTime time.Time, limit uint64) ([][]logstorage.Field, error) {
 	cp := &tracecommon.CommonParams{
 		TenantIDs: []logstorage.TenantID{tenantID},
 	}
 
-	dbSystem := spanAttr(otelpb.SpanAttrKeyDbSystem)
-	dbNamespace := spanAttr(otelpb.SpanAttrKeyDbName) // db.namespace
-
-	// (NOT "span_attr:db.system": "") AND (kind:3) | fields parent_span_id, span_attr:db.system, span_attr:db.namespace, resource_attr:service.name | rename ... | stats by (parent, child, namespace) count() callCount
+	// (NOT "span_attr:db.system.name": "") AND (kind:3) | fields resource_attr:service.name, span_attr:db.system.name | rename resource_attr:service.name as parent, span_attr:db.system.name as child | stats by (parent, child) count() callCount
 	qStr := fmt.Sprintf(
-		`(NOT "%s":"") AND (%s:%d) | fields %s, %s, %s, %s | rename %s as %s, %s as %s, %s as %s, %s as %s | stats by (%s, %s, %s) count() %s`,
-		dbSystem, otelpb.KindField, otelpb.SpanKind(3),
-		otelpb.ParentSpanIDField, dbSystem, dbNamespace, otelpb.ResourceAttrServiceName,
-		otelpb.ParentSpanIDField, otelpb.SpanIDField,
-		dbSystem, otelpb.ServiceGraphChildFieldName,
-		dbNamespace, otelpb.ServiceGraphNamespaceFieldName,
+		`(NOT "%s":"") AND (%s:%d) | fields %s, %s | rename %s as %s, %s as %s | stats by (%s, %s) count() %s`,
+		// filters
+		otelpb.SpanAttrDbSystemName, otelpb.KindField, otelpb.SpanKind(3),
+		// fields
+		otelpb.ResourceAttrServiceName, otelpb.SpanAttrDbSystemName,
+		// rename
 		otelpb.ResourceAttrServiceName, otelpb.ServiceGraphParentFieldName,
-		otelpb.ServiceGraphParentFieldName, otelpb.ServiceGraphChildFieldName, otelpb.ServiceGraphNamespaceFieldName,
+		otelpb.SpanAttrDbSystemName, otelpb.ServiceGraphChildFieldName,
+		// stats by
+		otelpb.ServiceGraphParentFieldName, otelpb.ServiceGraphChildFieldName,
+		// count()
 		otelpb.ServiceGraphCallCountFieldName,
 	)
 
 	q, err := logstorage.ParseQueryAtTimestamp(qStr, endTime.UnixNano())
 	if err != nil {
-		return nil, fmt.Errorf("cannot parse middleware query [%s]: %w", qStr, err)
+		return nil, fmt.Errorf("cannot parse service db query [%s]: %w", qStr, err)
 	}
 	q.AddTimeFilter(startTime.UnixNano(), endTime.UnixNano())
 	if limit > 0 {
@@ -750,35 +743,27 @@ func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.Tenant
 		if len(columns) == 0 {
 			return
 		}
-		nameToIdx := make(map[string]int)
+		clonedColumnNames := make([]string, len(columns))
 		valuesCount := 0
 		for i, c := range columns {
-			nameToIdx[c.Name] = i
+			clonedColumnNames[i] = strings.Clone(c.Name)
 			if len(c.Values) > valuesCount {
 				valuesCount = len(c.Values)
 			}
 		}
-		getVal := func(i int, name string) string {
-			idx, ok := nameToIdx[name]
-			if !ok || idx >= len(columns) || i >= len(columns[idx].Values) {
-				return ""
-			}
-			return columns[idx].Values[i]
+		if valuesCount == 0 {
+			return
 		}
 		for i := 0; i < valuesCount; i++ {
-			parent := getVal(i, otelpb.ServiceGraphParentFieldName)
-			child := getVal(i, otelpb.ServiceGraphChildFieldName)
-			namespace := getVal(i, otelpb.ServiceGraphNamespaceFieldName)
-			callCount := getVal(i, otelpb.ServiceGraphCallCountFieldName)
-			// Merge namespace into child for storage: child:namespace if namespace non-empty, else child
-			mergedChild := child
-			if namespace != "" && namespace != "-" {
-				mergedChild = child + ":" + namespace
-			}
-			fields := []logstorage.Field{
-				{Name: otelpb.ServiceGraphParentFieldName, Value: parent},
-				{Name: otelpb.ServiceGraphChildFieldName, Value: mergedChild},
-				{Name: otelpb.ServiceGraphCallCountFieldName, Value: callCount},
+			fields := make([]logstorage.Field, 0, len(columns))
+			for j := range clonedColumnNames {
+				fields = append(
+					fields,
+					logstorage.Field{
+						Name:  clonedColumnNames[j],
+						Value: strings.Clone(columns[j].Values[i]),
+					},
+				)
 			}
 			rowsLock.Lock()
 			rows = append(rows, fields)

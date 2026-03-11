@@ -16,13 +16,11 @@ import (
 )
 
 var (
-	enableServiceGraphTask          = flag.Bool("servicegraph.enableTask", false, "Whether to enable background task for generating service graph. It should only be enabled on VictoriaTraces single-node or vtstorage.")
-	serviceGraphTaskInterval        = flag.Duration("servicegraph.taskInterval", time.Minute, "The background task interval for generating service graph data. It requires setting -servicegraph.enableTask=true.")
-	serviceGraphTaskTimeout         = flag.Duration("servicegraph.taskTimeout", 30*time.Second, "The background task timeout duration for generating service graph data. It requires setting -servicegraph.enableTask=true.")
-	serviceGraphTaskLookbehind      = flag.Duration("servicegraph.taskLookbehind", time.Minute, "The lookbehind window for each time service graph background task run. It requires setting -servicegraph.enableTask=true.")
-	serviceGraphTaskLimit           = flag.Uint64("servicegraph.taskLimit", 1000, "How many service graph relations each task could fetch for each tenant. It requires setting -servicegraph.enableTask=true.")
-	enableServiceGraphMiddleware    = flag.Bool("servicegraph.enableMiddleware", false, "Whether to include middleware/external dependency calls (db, messaging, peer.service, server.address) in the service graph. It requires setting -servicegraph.enableTask=true.")
-	serviceGraphTaskMiddlewareLimit = flag.Uint64("servicegraph.taskMiddlewareLimit", 1000, "How many service-to-middleware relations each task could fetch for each tenant. It requires setting -servicegraph.enableTask=true and -servicegraph.enableMiddleware=true.")
+	enableServiceGraphTask     = flag.Bool("servicegraph.enableTask", false, "Whether to enable background task for generating service graph. It should only be enabled on VictoriaTraces single-node or vtstorage.")
+	serviceGraphTaskInterval   = flag.Duration("servicegraph.taskInterval", time.Minute, "The background task interval for generating service graph data. It requires setting -servicegraph.enableTask=true.")
+	serviceGraphTaskTimeout    = flag.Duration("servicegraph.taskTimeout", 30*time.Second, "The background task timeout duration for generating service graph data. It requires setting -servicegraph.enableTask=true.")
+	serviceGraphTaskLookbehind = flag.Duration("servicegraph.taskLookbehind", time.Minute, "The lookbehind window for each time service graph background task run. It requires setting -servicegraph.enableTask=true.")
+	serviceGraphTaskLimit      = flag.Uint64("servicegraph.taskLimit", 1000, "How many service graph relations each task could fetch for each tenant. It requires setting -servicegraph.enableTask=true.")
 )
 
 var (
@@ -99,11 +97,14 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 	}
 	commonFieldLen := len(commonFields)
 
-	var hasError bool
+	var (
+		rows     [][]logstorage.Field
+		hasError bool
+	)
 	// query and persist operations are executed sequentially, which helps not to consume excessive resources.
 	for _, tenantID := range tenantIDs {
 		// query and persist service-to-service graph relations
-		rows, err := vtselect.GetServiceGraphTimeRange(ctx, tenantID, startTime, endTime, *serviceGraphTaskLimit)
+		rows, err = vtselect.GetServiceGraphTimeRange(ctx, tenantID, startTime, endTime, *serviceGraphTaskLimit)
 		if err != nil {
 			hasError = true
 			logger.Errorf("cannot get service graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
@@ -116,23 +117,26 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 			if err != nil {
 				hasError = true
 				logger.Errorf("cannot persist service graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
+				continue
 			}
 		}
 
-		// query and persist service-to-middleware relations (db, messaging, peer.service, server.address)
-		if *enableServiceGraphMiddleware {
-			mwRows, mwErr := vtselect.GetMiddlewareGraphTimeRange(ctx, tenantID, startTime, endTime, *serviceGraphTaskMiddlewareLimit)
-			if mwErr != nil {
+		// query and persist service-to-db relations
+		limitLeft := *serviceGraphTaskLimit - uint64(len(rows))
+		if limitLeft > 0 {
+			rows, err = vtselect.GetServiceDBGraphTimeRange(ctx, tenantID, startTime, endTime, limitLeft)
+			if err != nil {
 				hasError = true
-				logger.Errorf("cannot get middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), mwErr)
+				logger.Errorf("cannot get middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
 				continue
 			}
-			if len(mwRows) > 0 {
+			if len(rows) > 0 {
 				commonFields = commonFields[:commonFieldLen]
-				_, mwErr = vtinsert.PersistServiceGraph(ctx, tenantID, commonFields, mwRows, endTime)
-				if mwErr != nil {
+				_, err = vtinsert.PersistServiceGraph(ctx, tenantID, commonFields, rows, endTime)
+				if err != nil {
 					hasError = true
-					logger.Errorf("cannot persist middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), mwErr)
+					logger.Errorf("cannot persist middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
+					continue
 				}
 			}
 		}

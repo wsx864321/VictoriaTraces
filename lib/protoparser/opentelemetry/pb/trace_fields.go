@@ -37,6 +37,9 @@ const (
 	// DurationField field is calculated by end-start to allow duration filter on span.
 	// It's not part of OTLP.
 	DurationField = "duration"
+
+	// SpanAttrDbSystemName is a special fields used by service graph queries.
+	SpanAttrDbSystemName = "span_attr:db.system.name"
 )
 
 // Span_Event
@@ -65,11 +68,4 @@ const (
 const (
 	StatusMessageField = "status_message"
 	StatusCodeField    = "status_code"
-)
-
-// OpenTelemetry semantic convention attribute keys for middleware/external dependency detection.
-// Stored with SpanAttrPrefixField prefix, e.g. span_attr:db.system.
-const (
-	SpanAttrKeyDbSystem = "db.system"
-	SpanAttrKeyDbName   = "db.namespace"
 )
