@@ -110,6 +110,19 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 			logger.Errorf("cannot get service graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
 			continue
 		}
+
+		// query and persist service-to-db relations
+		limitLeft := *serviceGraphTaskLimit - uint64(len(rows))
+		if limitLeft > 0 {
+			dbRows, err := vtselect.GetServiceDBGraphTimeRange(ctx, tenantID, startTime, endTime, limitLeft)
+			if err != nil {
+				hasError = true
+				logger.Errorf("cannot get middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
+				continue
+			}
+			rows = append(rows, dbRows...)
+		}
+
 		if len(rows) > 0 {
 			commonFields = commonFields[:commonFieldLen]
 			// persist service graph relations
@@ -118,26 +131,6 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 				hasError = true
 				logger.Errorf("cannot persist service graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
 				continue
-			}
-		}
-
-		// query and persist service-to-db relations
-		limitLeft := *serviceGraphTaskLimit - uint64(len(rows))
-		if limitLeft > 0 {
-			rows, err = vtselect.GetServiceDBGraphTimeRange(ctx, tenantID, startTime, endTime, limitLeft)
-			if err != nil {
-				hasError = true
-				logger.Errorf("cannot get middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
-				continue
-			}
-			if len(rows) > 0 {
-				commonFields = commonFields[:commonFieldLen]
-				_, err = vtinsert.PersistServiceGraph(ctx, tenantID, commonFields, rows, endTime)
-				if err != nil {
-					hasError = true
-					logger.Errorf("cannot persist middleware graph for time range [%d, %d] of tenant %s: %s", startTime.Unix(), endTime.Unix(), tenantID.String(), err)
-					continue
-				}
 			}
 		}
 	}
