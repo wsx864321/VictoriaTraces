@@ -104,7 +104,7 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 	)
 	// query and persist operations are executed sequentially, which helps not to consume excessive resources.
 	for _, tenantID := range tenantIDs {
-		// query and persist service-to-service graph relations
+		// query service-to-service graph relations
 		rows, err = vtselect.GetServiceGraphTimeRange(ctx, tenantID, startTime, endTime, *serviceGraphTaskLimit)
 		if err != nil {
 			hasError = true
@@ -112,7 +112,7 @@ func GenerateServiceGraphTimeRange(ctx context.Context) {
 			continue
 		}
 
-		// query and persist service-to-db relations
+		// query service-to-db relations if flag is set/defaulted to non-zero value.
 		if *serviceGraphDatabaseTaskLimit > 0 {
 			dbRows, err := vtselect.GetServiceDBGraphTimeRange(ctx, tenantID, startTime, endTime, *serviceGraphDatabaseTaskLimit)
 			if err != nil {
