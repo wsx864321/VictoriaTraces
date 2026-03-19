@@ -328,8 +328,20 @@ func streamdependencyJson(qw422016 *qt422016.Writer, dependency *dependencyLink)
 //line app/vtselect/traces/jaeger/jaeger.qtpl:107
 	qw422016.N().DUL(dependency.callCount)
 //line app/vtselect/traces/jaeger/jaeger.qtpl:107
-	qw422016.N().S(`}`)
+	qw422016.N().S(`,"warningCount":`)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:108
+	qw422016.N().DUL(dependency.warningCount)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:108
+	qw422016.N().S(`,"errorCount":`)
 //line app/vtselect/traces/jaeger/jaeger.qtpl:109
+	qw422016.N().DUL(dependency.errorCount)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:109
+	qw422016.N().S(`,"normalCount":`)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:110
+	qw422016.N().DUL(dependency.normalCount)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:110
+	qw422016.N().S(`}`)
+//line app/vtselect/traces/jaeger/jaeger.qtpl:112
 }
 
 //line app/vtselect/traces/jaeger/jaeger.qtpl:109

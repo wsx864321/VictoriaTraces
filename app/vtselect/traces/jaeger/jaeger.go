@@ -451,6 +451,24 @@ func processGetDependenciesRequest(ctx context.Context, w http.ResponseWriter, r
 					logger.Errorf("cannot parse callCount [%s]: %s", f.Value, err)
 					continue
 				}
+			case "warningCount":
+				dependency.warningCount, err = strconv.ParseUint(f.Value, 10, 64)
+				if err != nil {
+					logger.Errorf("cannot parse warningCount [%s]: %s", f.Value, err)
+					continue
+				}
+			case "errorCount":
+				dependency.errorCount, err = strconv.ParseUint(f.Value, 10, 64)
+				if err != nil {
+					logger.Errorf("cannot parse errorCount [%s]: %s", f.Value, err)
+					continue
+				}
+			case "normalCount":
+				dependency.normalCount, err = strconv.ParseUint(f.Value, 10, 64)
+				if err != nil {
+					logger.Errorf("cannot parse normalCount [%s]: %s", f.Value, err)
+					continue
+				}
 			}
 		}
 		if dependency.parent != "" && dependency.child != "" && dependency.callCount > 0 {

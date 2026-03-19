@@ -16,8 +16,12 @@ const (
 
 // service graph stream and fields
 const (
-	ServiceGraphStreamName         = "trace_service_graph_stream"
-	ServiceGraphParentFieldName    = "parent"
-	ServiceGraphChildFieldName     = "child"
-	ServiceGraphCallCountFieldName = "callCount"
+	ServiceGraphStreamName           = "trace_service_graph_stream"
+	ServiceGraphParentFieldName      = "parent"
+	ServiceGraphChildFieldName       = "child"
+	ServiceGraphCallCountFieldName   = "callCount"
+	ServiceGraphNamespaceFieldName   = "namespace"
+	ServiceGraphWarningCountField    = "warningCount"
+	ServiceGraphErrorCountField      = "errorCount"
+	ServiceGraphNormalCountField     = "normalCount"
 )

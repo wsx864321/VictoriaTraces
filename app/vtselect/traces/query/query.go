@@ -531,21 +531,28 @@ type ServiceGraphQueryParameters struct {
 	Lookback time.Duration
 }
 
-// GetServiceGraphList returns service dependencies graph edges (parent, child, callCount) in []*Row format.
+// GetServiceGraphList returns service dependencies graph edges (parent, child, callCount, warningCount, errorCount, normalCount) in []*Row format.
 //
 // TODO: currently this function can only handle request from Jaeger dependencies API. Since Tempo provides similar service graph
 // feature, it would be great to add support for Tempo service graph API as well.
 func GetServiceGraphList(ctx context.Context, cp *tracecommon.CommonParams, param *ServiceGraphQueryParameters) ([]*tracecommon.Row, error) {
-	// {trace_service_graph_stream="-"} | fields parent, child, callCount | stats by (parent, child) sum(callCount) as callCount
-	qStr := fmt.Sprintf(`{%s="-"} | fields %s, %s, %s | stats by (%s, %s) sum(%s) as %s`,
+	// {trace_service_graph_stream="-"} | fields parent, child, callCount, warningCount, errorCount, normalCount
+	// | stats by (parent, child) sum(callCount) as callCount, sum(warningCount) as warningCount, sum(errorCount) as errorCount, sum(normalCount) as normalCount
+	qStr := fmt.Sprintf(
+		`{%s="-"} | fields %s, %s, %s, %s, %s, %s | stats by (%s, %s) sum(%s) as %s, sum(%s) as %s, sum(%s) as %s, sum(%s) as %s`,
 		otelpb.ServiceGraphStreamName,
 		otelpb.ServiceGraphParentFieldName,
 		otelpb.ServiceGraphChildFieldName,
 		otelpb.ServiceGraphCallCountFieldName,
+		otelpb.ServiceGraphWarningCountField,
+		otelpb.ServiceGraphErrorCountField,
+		otelpb.ServiceGraphNormalCountField,
 		otelpb.ServiceGraphParentFieldName,
 		otelpb.ServiceGraphChildFieldName,
-		otelpb.ServiceGraphCallCountFieldName,
-		otelpb.ServiceGraphCallCountFieldName,
+		otelpb.ServiceGraphCallCountFieldName, otelpb.ServiceGraphCallCountFieldName,
+		otelpb.ServiceGraphWarningCountField, otelpb.ServiceGraphWarningCountField,
+		otelpb.ServiceGraphErrorCountField, otelpb.ServiceGraphErrorCountField,
+		otelpb.ServiceGraphNormalCountField, otelpb.ServiceGraphNormalCountField,
 	)
 	startTime := param.EndTs.Add(-param.Lookback).UnixNano()
 	endTime := param.EndTs.UnixNano()
@@ -603,21 +610,31 @@ func GetServiceGraphList(ctx context.Context, cp *tracecommon.CommonParams, para
 }
 
 // GetServiceGraphTimeRange is an internal function used by service graph background task.
-// It calculates the service graph relation within the time range in (parent, child, callCount) format for specific tenant.
+// It calculates the service graph relation within the time range in (parent, child, callCount, warningCount, errorCount, normalCount) format for specific tenant.
+//
+// For service-to-service relations:
+//   - warningCount: spans where duration > 2s (2_000_000_000 ns) AND NOT http.response.status_code 5xx
+//   - errorCount: spans where http.response.status_code matches 5xx
+//   - normalCount: spans that match neither warning nor error conditions
 func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID, startTime, endTime time.Time, limit uint64) ([][]logstorage.Field, error) {
 	cp := &tracecommon.CommonParams{
 		TenantIDs: []logstorage.TenantID{tenantID},
 	}
 
-	// (NOT parent_span_id:"") AND (kind:~"2|5")  | fields parent_span_id, resource_attr:service.name | rename parent_span_id as span_id, resource_attr:service.name as child
+	httpStatusCode := spanAttr(otelpb.SpanAttrKeyHTTPResponseStatus)
+
+	// (NOT parent_span_id:"") AND (kind:~"2|5")  | fields parent_span_id, resource_attr:service.name, duration, span_attr:http.response.status_code
+	// | rename parent_span_id as span_id, resource_attr:service.name as child
 	qStrChildSpans := fmt.Sprintf(
-		`(NOT %s:"") AND (%s:~"%d|%d")  | fields %s, %s | rename %s as %s, %s as %s`,
+		`(NOT %s:"") AND (%s:~"%d|%d")  | fields %s, %s, %s, %s | rename %s as %s, %s as %s`,
 		otelpb.ParentSpanIDField, // parent span id not empty means this span is a child span.
 		otelpb.KindField,         // only server(2) and consumer(5) span could be used as a child. It helps reduce the spans it needs to fetch.
 		otelpb.SpanKind(2),
 		otelpb.SpanKind(5),
 		otelpb.ParentSpanIDField,
 		otelpb.ResourceAttrServiceName,
+		otelpb.DurationField,
+		httpStatusCode,
 		otelpb.ParentSpanIDField,
 		otelpb.SpanIDField,
 		otelpb.ResourceAttrServiceName,
@@ -635,9 +652,19 @@ func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID,
 		otelpb.ResourceAttrServiceName,
 		otelpb.ServiceGraphParentFieldName,
 	)
-	// join by span_id
+
+	// 2s in nanoseconds
+	warningThresholdNs := "2000000000"
+
+	// join by span_id, then stats with conditional counts:
+	// - errorCount: http.response.status_code matches 5xx
+	// - warningCount: duration > 2s AND NOT 5xx
+	// - normalCount: everything else (NOT warning AND NOT error)
 	qStr := fmt.Sprintf(
-		`%s | join by (%s) (%s) inner | NOT %s:eq_field(%s) | stats by (%s, %s) count() %s`,
+		`%s | join by (%s) (%s) inner | NOT %s:eq_field(%s) | stats by (%s, %s) count() %s, `+
+			`count() if ("%s":re("^5")) %s, `+
+			`count() if (%s:>%s AND NOT "%s":re("^5")) %s, `+
+			`count() if (NOT %s:>%s AND NOT "%s":re("^5")) %s`,
 		qStrChildSpans,
 		otelpb.SpanIDField,
 		qStrParentSpans,
@@ -646,6 +673,9 @@ func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID,
 		otelpb.ServiceGraphParentFieldName,
 		otelpb.ServiceGraphChildFieldName,
 		otelpb.ServiceGraphCallCountFieldName,
+		httpStatusCode, otelpb.ServiceGraphErrorCountField,
+		otelpb.DurationField, warningThresholdNs, httpStatusCode, otelpb.ServiceGraphWarningCountField,
+		otelpb.DurationField, warningThresholdNs, httpStatusCode, otelpb.ServiceGraphNormalCountField,
 	)
 
 	q, err := logstorage.ParseQueryAtTimestamp(qStr, endTime.UnixNano())
@@ -698,5 +728,119 @@ func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID,
 		return nil, fmt.Errorf("cannot execute query [%s]: %s", qStr, err)
 	}
 
+	return rows, nil
+}
+
+// spanAttr returns the full field name for a span attribute (e.g. span_attr:db.system).
+func spanAttr(key string) string {
+	return otelpb.SpanAttrPrefixField + key
+}
+
+// GetMiddlewareGraphTimeRange returns service-to-middleware relations (parent, child, namespace, callCount, warningCount, errorCount, normalCount)
+// for the given tenant and time range.
+//
+// For service-to-middleware relations:
+//   - warningCount: spans where duration > 2s (2_000_000_000 ns) AND NOT error=true
+//   - errorCount: spans where span_attr:error = "true"
+//   - normalCount: spans that match neither warning nor error conditions
+//
+// Query: Client spans (kind:3) with db.system/db.namespace and resource_attr:service.name, then stats by (parent, child, namespace).
+func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID, startTime, endTime time.Time, limit uint64) ([][]logstorage.Field, error) {
+	cp := &tracecommon.CommonParams{
+		TenantIDs: []logstorage.TenantID{tenantID},
+	}
+
+	dbSystem := spanAttr(otelpb.SpanAttrKeyDbSystem)
+	dbNamespace := spanAttr(otelpb.SpanAttrKeyDbName)       // db.namespace
+	errorAttr := spanAttr(otelpb.SpanAttrKeyError)           // span_attr:error
+
+	warningThresholdNs := "2000000000" // 2s in nanoseconds
+
+	// (NOT "span_attr:db.system": "") AND (kind:3) | fields ..., duration, span_attr:error | rename ... | stats by (parent, child, namespace) ...
+	qStr := fmt.Sprintf(
+		`(NOT "%s":"") AND (%s:%d) | fields %s, %s, %s, %s, %s, %s `+
+			`| rename %s as %s, %s as %s, %s as %s, %s as %s `+
+			`| stats by (%s, %s, %s) count() %s, `+
+			`count() if ("%s":"true") %s, `+
+			`count() if (%s:>%s AND NOT "%s":"true") %s, `+
+			`count() if (NOT %s:>%s AND NOT "%s":"true") %s`,
+		dbSystem, otelpb.KindField, otelpb.SpanKind(3),
+		otelpb.ParentSpanIDField, dbSystem, dbNamespace, otelpb.ResourceAttrServiceName, otelpb.DurationField, errorAttr,
+		otelpb.ParentSpanIDField, otelpb.SpanIDField,
+		dbSystem, otelpb.ServiceGraphChildFieldName,
+		dbNamespace, otelpb.ServiceGraphNamespaceFieldName,
+		otelpb.ResourceAttrServiceName, otelpb.ServiceGraphParentFieldName,
+		otelpb.ServiceGraphParentFieldName, otelpb.ServiceGraphChildFieldName, otelpb.ServiceGraphNamespaceFieldName,
+		otelpb.ServiceGraphCallCountFieldName,
+		errorAttr, otelpb.ServiceGraphErrorCountField,
+		otelpb.DurationField, warningThresholdNs, errorAttr, otelpb.ServiceGraphWarningCountField,
+		otelpb.DurationField, warningThresholdNs, errorAttr, otelpb.ServiceGraphNormalCountField,
+	)
+
+	q, err := logstorage.ParseQueryAtTimestamp(qStr, endTime.UnixNano())
+	if err != nil {
+		return nil, fmt.Errorf("cannot parse middleware query [%s]: %w", qStr, err)
+	}
+	q.AddTimeFilter(startTime.UnixNano(), endTime.UnixNano())
+	if limit > 0 {
+		q.AddPipeOffsetLimit(0, limit)
+	}
+
+	cp.Query = q
+	qctx := cp.NewQueryContext(ctx)
+	defer cp.UpdatePerQueryStatsMetrics()
+
+	var rowsLock sync.Mutex
+	var rows [][]logstorage.Field
+	writeBlock := func(_ uint, db *logstorage.DataBlock) {
+		columns := db.GetColumns(false)
+		if len(columns) == 0 {
+			return
+		}
+		nameToIdx := make(map[string]int)
+		valuesCount := 0
+		for i, c := range columns {
+			nameToIdx[c.Name] = i
+			if len(c.Values) > valuesCount {
+				valuesCount = len(c.Values)
+			}
+		}
+		getVal := func(i int, name string) string {
+			idx, ok := nameToIdx[name]
+			if !ok || idx >= len(columns) || i >= len(columns[idx].Values) {
+				return ""
+			}
+			return columns[idx].Values[i]
+		}
+		for i := 0; i < valuesCount; i++ {
+			parent := getVal(i, otelpb.ServiceGraphParentFieldName)
+			child := getVal(i, otelpb.ServiceGraphChildFieldName)
+			namespace := getVal(i, otelpb.ServiceGraphNamespaceFieldName)
+			callCount := getVal(i, otelpb.ServiceGraphCallCountFieldName)
+			warningCount := getVal(i, otelpb.ServiceGraphWarningCountField)
+			errorCount := getVal(i, otelpb.ServiceGraphErrorCountField)
+			normalCount := getVal(i, otelpb.ServiceGraphNormalCountField)
+			// Merge namespace into child for storage: child:namespace if namespace non-empty, else child
+			mergedChild := child
+			if namespace != "" && namespace != "-" {
+				mergedChild = child + ":" + namespace
+			}
+			fields := []logstorage.Field{
+				{Name: otelpb.ServiceGraphParentFieldName, Value: parent},
+				{Name: otelpb.ServiceGraphChildFieldName, Value: mergedChild},
+				{Name: otelpb.ServiceGraphCallCountFieldName, Value: callCount},
+				{Name: otelpb.ServiceGraphWarningCountField, Value: warningCount},
+				{Name: otelpb.ServiceGraphErrorCountField, Value: errorCount},
+				{Name: otelpb.ServiceGraphNormalCountField, Value: normalCount},
+			}
+			rowsLock.Lock()
+			rows = append(rows, fields)
+			rowsLock.Unlock()
+		}
+	}
+
+	if err = vtstorage.RunQuery(qctx, writeBlock); err != nil {
+		return nil, fmt.Errorf("cannot execute middleware query [%s]: %w", qStr, err)
+	}
 	return rows, nil
 }

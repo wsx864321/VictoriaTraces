@@ -57,9 +57,12 @@ type log struct {
 }
 
 type dependencyLink struct {
-	parent    string
-	child     string
-	callCount uint64
+	parent       string
+	child        string
+	callCount    uint64
+	warningCount uint64
+	errorCount   uint64
+	normalCount  uint64
 }
 
 // since Jaeger renamed some fields in OpenTelemetry

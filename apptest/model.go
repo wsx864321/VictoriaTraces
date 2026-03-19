@@ -319,9 +319,12 @@ type JaegerAPIDependenciesResponse struct {
 }
 
 type DependenciesResponseData struct {
-	Parent    string `json:"parent"`
-	Child     string `json:"child"`
-	CallCount int    `json:"callCount"`
+	Parent       string `json:"parent"`
+	Child        string `json:"child"`
+	CallCount    int    `json:"callCount"`
+	WarningCount int    `json:"warningCount"`
+	ErrorCount   int    `json:"errorCount"`
+	NormalCount  int    `json:"normalCount"`
 }
 
 // LogsQLQueryResponse is an in-memory representation of the

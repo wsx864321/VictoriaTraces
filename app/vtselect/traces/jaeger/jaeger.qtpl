@@ -104,7 +104,10 @@
 {
     "parent": {%q= dependency.parent %},
     "child": {%q= dependency.child %},
-    "callCount": {%dul= dependency.callCount %}
+    "callCount": {%dul= dependency.callCount %},
+    "warningCount": {%dul= dependency.warningCount %},
+    "errorCount": {%dul= dependency.errorCount %},
+    "normalCount": {%dul= dependency.normalCount %}
 }
 {% endfunc %}
 
