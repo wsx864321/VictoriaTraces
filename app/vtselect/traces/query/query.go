@@ -731,7 +731,7 @@ func GetServiceGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID,
 	return rows, nil
 }
 
-// spanAttr returns the full field name for a span attribute (e.g. span_attr:db.system).
+// spanAttr returns the full field name for a span attribute (e.g. span_attr:db.system.name).
 func spanAttr(key string) string {
 	return otelpb.SpanAttrPrefixField + key
 }
@@ -744,19 +744,19 @@ func spanAttr(key string) string {
 //   - errorCount: spans where span_attr:error = "true"
 //   - normalCount: spans that match neither warning nor error conditions
 //
-// Query: Client spans (kind:3) with db.system/db.namespace and resource_attr:service.name, then stats by (parent, child, namespace).
+// Query: Client spans (kind:3) with db.system.name/db.namespace and resource_attr:service.name, then stats by (parent, child, namespace).
 func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.TenantID, startTime, endTime time.Time, limit uint64) ([][]logstorage.Field, error) {
 	cp := &tracecommon.CommonParams{
 		TenantIDs: []logstorage.TenantID{tenantID},
 	}
 
 	dbSystem := spanAttr(otelpb.SpanAttrKeyDbSystem)
-	dbNamespace := spanAttr(otelpb.SpanAttrKeyDbName)       // db.namespace
-	errorAttr := spanAttr(otelpb.SpanAttrKeyError)           // span_attr:error
+	dbNamespace := spanAttr(otelpb.SpanAttrKeyDbName) // db.namespace
+	errorAttr := spanAttr(otelpb.SpanAttrKeyError)    // span_attr:error
 
 	warningThresholdNs := "2000000000" // 2s in nanoseconds
 
-	// (NOT "span_attr:db.system": "") AND (kind:3) | fields ..., duration, span_attr:error | rename ... | stats by (parent, child, namespace) ...
+	// (NOT "span_attr:db.system.name": "") AND (kind:3) | fields ..., duration, span_attr:error | rename ... | stats by (parent, child, namespace) ...
 	qStr := fmt.Sprintf(
 		`(NOT "%s":"") AND (%s:%d) | fields %s, %s, %s, %s, %s, %s `+
 			`| rename %s as %s, %s as %s, %s as %s, %s as %s `+
