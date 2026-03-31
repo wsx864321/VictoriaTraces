@@ -68,9 +68,9 @@ const (
 )
 
 // OpenTelemetry semantic convention attribute keys for middleware/external dependency detection.
-// Stored with SpanAttrPrefixField prefix, e.g. span_attr:db.system.
+// Stored with SpanAttrPrefixField prefix, e.g. span_attr:db.system.name.
 const (
-	SpanAttrKeyDbSystem           = "db.system.name"
+	SpanAttrKeyDbSystemName       = "db.system.name"
 	SpanAttrKeyDbName             = "db.namespace"
 	SpanAttrKeyHTTPResponseStatus = "http.response.status_code"
 	SpanAttrKeyError              = "error"

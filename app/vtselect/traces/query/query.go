@@ -750,7 +750,7 @@ func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.Tenant
 		TenantIDs: []logstorage.TenantID{tenantID},
 	}
 
-	dbSystem := spanAttr(otelpb.SpanAttrKeyDbSystem)
+	dbSystemName := spanAttr(otelpb.SpanAttrKeyDbSystemName)
 	dbNamespace := spanAttr(otelpb.SpanAttrKeyDbName) // db.namespace
 	errorAttr := spanAttr(otelpb.SpanAttrKeyError)    // span_attr:error
 
@@ -764,10 +764,10 @@ func GetMiddlewareGraphTimeRange(ctx context.Context, tenantID logstorage.Tenant
 			`count() if ("%s":"true") %s, `+
 			`count() if (%s:>%s AND NOT "%s":"true") %s, `+
 			`count() if (NOT %s:>%s AND NOT "%s":"true") %s`,
-		dbSystem, otelpb.KindField, otelpb.SpanKind(3),
-		otelpb.ParentSpanIDField, dbSystem, dbNamespace, otelpb.ResourceAttrServiceName, otelpb.DurationField, errorAttr,
+		dbSystemName, otelpb.KindField, otelpb.SpanKind(3),
+		otelpb.ParentSpanIDField, dbSystemName, dbNamespace, otelpb.ResourceAttrServiceName, otelpb.DurationField, errorAttr,
 		otelpb.ParentSpanIDField, otelpb.SpanIDField,
-		dbSystem, otelpb.ServiceGraphChildFieldName,
+		dbSystemName, otelpb.ServiceGraphChildFieldName,
 		dbNamespace, otelpb.ServiceGraphNamespaceFieldName,
 		otelpb.ResourceAttrServiceName, otelpb.ServiceGraphParentFieldName,
 		otelpb.ServiceGraphParentFieldName, otelpb.ServiceGraphChildFieldName, otelpb.ServiceGraphNamespaceFieldName,
